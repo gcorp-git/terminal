@@ -1,14 +1,10 @@
 ;(function(){
 	'use strict';
 
-	// todo: each worker can have it's own workers added to env
-	// because each one of them has it's own copy of env
-
-	// todo: pass custom tools and subscribe to actions
-	
-	// todo: create shell with fs and text editor
-
+	// todo: change 'select' configs - bg and color may differ for each symbol
 	// todo: create optional caret to get the user input
+	// todo: pass custom tools and subscribe to actions
+	// todo: create shell with fs and text editor
 
 	window.terminal = new Terminal( '#terminal' );
 

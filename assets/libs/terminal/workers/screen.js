@@ -1,235 +1,200 @@
 ;(function(){
 	'use strict';
 
-	window.TerminalScreen = function( env ) {
-		env.$canvas = undefined;
-		env.ctx = undefined;
-		env.bg = '#111';
-		env.color = '#eee';
-		env.width = 0;
-		env.height = 0;
-		env.offset = {
-			sx: 0,
-			sy: 0,
-		};
-		env.real = [];
-		env.changed = false;
+	window.TerminalScreen = Worker(({ state, workers }) => ({
+		state: {
+			$canvas: undefined,
+			ctx: undefined,
+			bg: '#111',
+			color: '#eee',
+			width: 0,
+			height: 0,
+			offset: {
+				sx: 0,
+				sy: 0,
+			},
+			real: [],
+			changed: false,
+		},
+		service: ({ state, workers }) => ({
+			get $canvas() {
+				return state.$canvas;
+			},
+			get width() {
+				return state.width;
+			},
+			get height() {
+				return state.height;
+			},
+			get ox() {
+				return !workers.config.wrap ? state.offset.sx : 0;
+			},
+			set ox( ox ) {
+				state.offset.sx = ox >= 0 ? ox : 0;
+			},
+			get oy() {
+				return state.offset.sy;
+			},
+			set oy( oy ) {
+				state.offset.sy = oy >= 0 ? oy : 0;
+			},
+			enable() {
+				state.$canvas = document.querySelector( state.selector );
 
-		return {
-			enable: () => _enable( env ),
-			disable: () => _disable( env ),
-			resize: () => _resize( env ),
-			frame: () => _frame( env ),
-			reset: () => _reset( env ),
-			mark_for_refresh: () => _mark_for_refresh( env ),
-			get_canvas: () => _get_canvas( env ),
-			get_width: () => _get_width( env ),
-			get_height: () => _get_height( env ),
-			get_offset_sx: ( dx ) => _get_offset_sx( env, dx ),
-			get_offset_sy: ( dy ) => _get_offset_sy( env, dy ),
-			set_offset_sx: ( ox ) => _set_offset_sx( env, ox ),
-			set_offset_sy: ( oy ) => _set_offset_sy( env, oy ),
-			has_real_coords_row: ( sy ) => _has_real_coords_row( env, sy ),
-			get_real_coords: ( sx, sy ) => _get_real_coords( env, sx, sy ),
-		};
-	};
+				state.$canvas.setAttribute( 'style', `
+					display: block;
+					width: 100%;
+					height: 100%;
+					background-color: ${state.bg};
+					position: relative;
+					cursor: text;
+				`);
 
-	function _enable( env ) {
-		env.$canvas = document.querySelector( env.state.selector );
+				state.ctx = state.$canvas.getContext( '2d' );
 
-		env.$canvas.setAttribute( 'style', `
-			display: block;
-			width: 100%;
-			height: 100%;
-			background-color: ${env.bg};
-			position: relative;
-			cursor: text;
-		`);
+				this.resize();
+			},
+			disable() {
+				state.$canvas.removeAttribute( 'style' );
+			},
+			resize() {
+				const style = getComputedStyle( state.$canvas );
+				const canvasWidth = parseInt( style.width );
+				const canvasHeight = parseInt( style.height );
 
-		env.ctx = env.$canvas.getContext( '2d' );
+				if ( canvasWidth !== state.$canvas.width || canvasHeight !== state.$canvas.height ) {
+					state.$canvas.width = canvasWidth;
+					state.$canvas.height = canvasHeight;
 
-		_resize( env );
-	}
+					state.changed = true;
+				}
 
-	function _disable( env ) {
-		env.$canvas.removeAttribute( 'style' );
-	}
+				const sw = Math.floor( canvasWidth / workers.config.caret.width );
+				const sh = Math.floor( canvasHeight / workers.config.caret.height );
 
-	function _resize( env ) {
-		const style = getComputedStyle( env.$canvas );
-		const canvasWidth = parseInt( style.width );
-		const canvasHeight = parseInt( style.height );
+				if ( sw !== state.width || sh !== state.height ) {
+					state.width = sw;
+					state.height = sh;
+				}
 
-		if ( canvasWidth !== env.$canvas.width || canvasHeight !== env.$canvas.height ) {
-			env.$canvas.width = canvasWidth;
-			env.$canvas.height = canvasHeight;
+				_update_real_coords( state, workers );
+			},
+			frame() {
+				if ( !state.changed ) return;
 
-			env.changed = true;
-		}
+				this.resize();
 
-		const sw = Math.floor( canvasWidth / env.workers.config.get('caret').width );
-		const sh = Math.floor( canvasHeight / env.workers.config.get('caret').height );
+				workers.select.frame();
 
-		if ( sw !== env.width || sh !== env.height ) {
-			env.width = sw;
-			env.height = sh;
-		}
+				state.ctx.clearRect( 0, 0, state.$canvas.width, state.$canvas.height );
 
-		_update_real_coords( env );
-	}
+				const sw = state.width;
+				const sh = state.height;
 
-	function _frame( env ) {
-		if ( !env.changed ) return;
+				const ns = workers.select.get_normalized();
 
-		_resize( env );
+				for ( let sy = 0; sy < sh; sy++ ) {
+					if ( !this.has_real_coords_row( sy ) ) continue;
 
-		env.workers.select.frame();
+					for ( let sx = 0; sx < sw; sx++ ) {
+						const { rx, ry } = this.get_real_coords( sx, sy );
 
-		env.ctx.clearRect( 0, 0, env.$canvas.width, env.$canvas.height );
+						_draw_symbol( state, workers, rx, ry, sx, sy, ns );
+					}
+				}
 
-		const sw = env.width;
-		const sh = env.height;
+				state.changed = false;
+			},
+			reset() {
+				state.offset.sx = 0;
+				state.offset.sy = 0;
+			},
+			mark_for_refresh() {
+				state.changed = true;
+			},
+			has_real_coords_row( sy ) {
+				return !!state.real[ this.oy + sy ];
+			},
+			get_real_coords( sx, sy ) {
+				const osx = this.ox + sx;
+				const osy = this.oy + sy;
 
-		for ( let sy = 0; sy < sh; sy++ ) {
-			if ( !_has_real_coords_row( env, sy ) ) continue;
+				const real = state.real[ osy ];
 
-			for ( let sx = 0; sx < sw; sx++ ) {
-				const { rx, ry } = _get_real_coords( env, sx, sy );
+				const rx = real ? real[ 0 ] + osx : ( sx > 0 ? Infinity : -Infinity );
+				const ry = real ? real[ 1 ] : ( sy > 0 ? Infinity : -Infinity );
 
-				_draw_symbol( env, rx, ry, sx, sy );
-			}
-		}
+				return { rx, ry };
+			},
+		}),
+	}));
 
-		env.changed = false;
-	}
+	function _update_real_coords( state, workers ) {
+		if ( !state.changed ) return;
 
-	function _update_real_coords( env ) {
-		if ( !env.changed ) return;
-
-		const buffer = env.workers.io.get_buffer();
+		const buffer = workers.io.get_buffer();
 
 		let current = 0;
 
-		env.real = [];
+		state.real = [];
 
 		for ( let i = 0, len = buffer.length; i < len; i++ ) {
 			const rowLength = buffer[ i ] ? buffer[ i ].length : 0;
 
-			env.real[ current ] = [ 0, i ];
+			state.real[ current ] = [ 0, i ];
 
 			current += 1;
 
-			if ( env.workers.config.get('wrap') ) {
-				for ( let j = env.width; j <= rowLength; j += env.width ) {
-					env.real[ current ] = [ j, i ];
+			if ( workers.config.wrap ) {
+				for ( let j = state.width; j <= rowLength; j += state.width ) {
+					state.real[ current ] = [ j, i ];
 					current += 1;
 				}
 			}
 		}
 	}
 
-	function _draw_symbol( env, rx, ry, sx, sy ) {
-		const buffer = env.workers.io.get_buffer();
+	function _draw_symbol( state, workers, rx, ry, sx, sy, ns ) {
+		const buffer = workers.io.get_buffer();
 
 		let symbol = buffer[ ry ] ? buffer[ ry ][ rx ] : undefined;
 		
-		const cw = env.workers.config.get('caret').width;
-		const ch = env.workers.config.get('caret').height;
+		const cw = workers.config.caret.width;
+		const ch = workers.config.caret.height;
 
 		const gx = sx * cw;
 		const gy = sy * ch;
 
-		const selected = _is_selected_symbol( env, rx, ry );
+		const selected = ns ? _is_selected_symbol( rx, ry, ns ) : false;
 
 		const bg = !selected
-			? ( symbol?.bg ?? env.bg )
-			: env.workers.config.get('select').bg;
+			? ( symbol?.bg ?? state.bg )
+			: workers.config.select.bg;
 
-		env.ctx.fillStyle = bg;
-		env.ctx.fillRect( gx, gy, cw, ch );
+		state.ctx.fillStyle = bg;
+		state.ctx.fillRect( gx, gy, cw, ch );
 		
 		if ( symbol ) {
 			const color = !selected
-				? ( symbol?.color ?? env.color )
-				: env.workers.config.get('select').color;
+				? ( symbol?.color ?? state.color )
+				: workers.config.select.color;
 
-			const fw = env.workers.config.get('font').weight;
-			const fs = env.workers.config.get('font').size;
+			const fw = workers.config.font.weight;
+			const fs = workers.config.font.size;
 
-			env.ctx.font = `normal ${fw} ${fs}px/1 monospace`;
-			env.ctx.textBaseline = 'bottom';
-			env.ctx.fillStyle = color;
-			env.ctx.fillText( symbol.char, gx, gy + ch );
+			state.ctx.font = `normal ${fw} ${fs}px/1 monospace`;
+			state.ctx.textBaseline = 'bottom';
+			state.ctx.fillStyle = color;
+			state.ctx.fillText( symbol.char, gx, gy + ch );
 		}
 	}
 
-	function _is_selected_symbol( env, rx, ry ) {
-		const normalized_select = env.workers.select.get_normalized();
-
-		if ( !normalized_select ) return false;
-
-		if ( normalized_select.from.ry === normalized_select.to.ry ) {
-			return ry === normalized_select.from.ry
-				&& rx >= normalized_select.from.rx
-				&& rx <= normalized_select.to.rx;
-		}
-
-		return ( ry > normalized_select.from.ry && ry < normalized_select.to.ry )
-			|| ( ry === normalized_select.from.ry && rx >= normalized_select.from.rx )
-			|| ( ry === normalized_select.to.ry && rx <= normalized_select.to.rx );
-	}
-
-	function _reset( env ) {
-		env.offset.sx = 0;
-		env.offset.sy = 0;
-	}
-
-	function _mark_for_refresh( env ) {
-		env.changed = true;
-	}
-
-	function _get_canvas( env ) {
-		return env.$canvas;
-	}
-
-	function _get_width( env ) {
-		return env.width;
-	}
-
-	function _get_height( env ) {
-		return env.height;
-	}
-
-	function _get_offset_sx( env, dx ) {
-		return !env.workers.config.get('wrap') ? env.offset.sx + ( dx ?? 0 ) : ( dx ?? 0 );
-	}
-
-	function _get_offset_sy( env, dy ) {
-		return env.offset.sy + ( dy ?? 0 );
-	}
-
-	function _set_offset_sx( env, ox ) {
-		env.offset.sx = ox >= 0 ? ox : 0;
-	}
-
-	function _set_offset_sy( env, oy ) {
-		env.offset.sy = oy >= 0 ? oy : 0;
-	}
-
-	function _has_real_coords_row( env, sy ) {
-		return !!env.real[ _get_offset_sy( env, sy ) ];
-	}
-
-	function _get_real_coords( env, sx, sy ) {
-		const osx = _get_offset_sx( env, sx );
-		const osy = _get_offset_sy( env, sy );
-
-		const real = env.real[ osy ];
-
-		const rx = real ? real[ 0 ] + osx : ( sx > 0 ? Infinity : -Infinity );
-		const ry = real ? real[ 1 ] : ( sy > 0 ? Infinity : -Infinity );
-
-		return { rx, ry };
+	function _is_selected_symbol( rx, ry, ns ) {
+		return ns.from.ry === ns.to.ry
+			? ry === ns.from.ry && rx >= ns.from.rx && rx <= ns.to.rx
+			: ( ry > ns.from.ry && ry < ns.to.ry )
+				|| ( ry === ns.from.ry && rx >= ns.from.rx )
+				|| ( ry === ns.to.ry && rx <= ns.to.rx );
 	}
 
 })();

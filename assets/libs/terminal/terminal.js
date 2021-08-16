@@ -1,21 +1,17 @@
 ;(function(){
 	'use strict';
 
-	window.Terminal = function( selector ) {
-		const state = {};
-
-		state.selector = selector;
-
-		const workers = {};
-
-		workers.config = new TerminalConfig({ state, workers });
-		workers.events = new TerminalEvents({ state, workers });
-		workers.head = new TerminalHead({ state, workers });
-		workers.io = new TerminalIO({ state, workers });
-		workers.screen = new TerminalScreen({ state, workers });
-		workers.select = new TerminalSelect({ state, workers });
-
-		return {
+	window.Terminal = Director(( selector ) => ({
+		state: { selector },
+		workers: {
+			config: TerminalConfig,
+			events: TerminalEvents,
+			head: TerminalHead,
+			io: TerminalIO,
+			screen: TerminalScreen,
+			select: TerminalSelect,
+		},
+		service: ({ state, workers }) => ({
 			enable: workers.head.enable,
 			disable: workers.head.disable,
 			config: workers.config.edit,
@@ -23,7 +19,7 @@
 			get: workers.io.get,
 			set: workers.io.set,
 			remove: workers.io.remove,
-		};
-	}
+		}),
+	}));
 
 })();

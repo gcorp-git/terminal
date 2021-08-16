@@ -1,59 +1,55 @@
 ;(function(){
 	'use strict';
 
-	window.TerminalSelect = function( env ) {
-		env.select = undefined;
-		env.normalized = undefined;
+	window.TerminalSelect = Worker(({ state, workers }) => ({
+		state: {
+			select: undefined,
+			normalized: undefined,
+		},
+		service: ({ state, workers }) => ({
+			frame() {
+				if ( state.normalized ) delete state.normalized;
+			},
+			get() {
+				return { ...state.select };
+			},
+			set( value ) {
+				state.select = value;
+			},
+			edit( patch ) {
+				state.select = { ...state.select, ...patch };
+			},
+			remove() {
+				if ( state.select ) delete state.select;
+			},
+			get_normalized() {
+				if ( !state.select?.to ) return undefined;
 
-		return {
-			frame: () => _frame( env ),
-			get: () => _get( env ),
-			set: ( value ) => _set( env, value ),
-			edit: ( patch ) => _edit( env, patch ),
-			remove: () => _remove( env ),
-			get_normalized: () => _get_normalized( env ),
-		};
-	};
+				if ( !state.normalized ) {
+					state.normalized = _normalize( state.select );
+				}
 
-	function _frame( env ) {
-		if ( env.normalized ) delete env.normalized;
-	}
+				return {
+					from: { ...state.normalized.from },
+					to: { ...state.normalized.to },
+				};
+			},
+		}),
+	}));
 
-	function _get( env ) {
-		return { ...env.select };
-	}
+	function _normalize( select ) {
+		const from = { ...select.from };
+		const to = { ...select.to };
 
-	function _set( env, value ) {
-		env.select = value;
-	}
+		const original = { from: from, to: to };
+		const reversed = { from: to, to: from };
 
-	function _edit( env, patch ) {
-		env.select = { ...env.select, ...patch };
-	}
+		const min_rx = Math.min( from.rx, to.rx );
+		const min_ry = Math.min( from.ry, to.ry );
 
-	function _remove( env ) {
-		if ( env.select ) delete env.select;
-	}
-
-	function _get_normalized( env ) {
-		if ( !env.select?.to ) return undefined;
-
-		if ( !env.normalized ) {
-			const from = { ...env.select.from };
-			const to = { ...env.select.to };
-
-			const original = { from: from, to: to };
-			const reversed = { from: to, to: from };
-
-			const min_rx = Math.min( from.rx, to.rx );
-			const min_ry = Math.min( from.ry, to.ry );
-
-			env.normalized = from.ry === to.ry
-				? ( from.rx === min_rx ? original : reversed )
-				: ( from.ry === min_ry ? original : reversed );
-		}
-
-		return env.normalized;
+		return from.ry === to.ry
+			? ( from.rx === min_rx ? original : reversed )
+			: ( from.ry === min_ry ? original : reversed );
 	}
 
 })();

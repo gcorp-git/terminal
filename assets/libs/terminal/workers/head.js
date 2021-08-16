@@ -1,42 +1,37 @@
 ;(function(){
 	'use strict';
 
-	window.TerminalHead = function( env ) {
-		env.enabled = false;
+	window.TerminalHead = Worker(({ state, workers }) => ({
+		state: { enabled: false },
+		service: ({ state, workers }) => ({
+			enable( options ) {
+				if ( state.enabled ) return;
 
-		return {
-			enable: ( options ) => _enable( env, options ),
-			disable: () => _disable( env ),
-		};
-	};
+				state.enabled = true;
 
-	function _enable( env, options ) {
-		if ( env.enabled ) return;
+				workers.config.edit( options );
+				workers.screen.enable();
+				workers.events.enable();
 
-		env.enabled = true;
+				const frame = () => {
+					if ( !state.enabled ) return;
+					
+					workers.screen.frame();
 
-		env.workers.config.edit( options );
-		env.workers.screen.enable();
-		env.workers.events.enable();
+					window.requestAnimationFrame( frame );
+				};
 
-		const frame = () => {
-			if ( !env.enabled ) return;
-			
-			env.workers.screen.frame();
+				window.requestAnimationFrame( frame );
+			},
+			disable() {
+				if ( !state.enabled ) return;
 
-			window.requestAnimationFrame( frame );
-		};
+				state.enabled = false;
 
-		window.requestAnimationFrame( frame );
-	}
-
-	function _disable( env ) {
-		if ( !env.enabled ) return;
-
-		env.enabled = false;
-
-		env.workers.events.disable();
-		env.workers.screen.disable();
-	}
+				workers.events.disable();
+				workers.screen.disable();
+			},
+		}),
+	}));
 
 })();
