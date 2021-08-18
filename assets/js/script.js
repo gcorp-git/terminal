@@ -1,14 +1,13 @@
 ;(function(){
   'use strict';
 
-  // todo: change 'select' configs - bg and color may differ for each symbol
-  // todo: create optional caret to get the user input
-  // todo: pass custom tools and subscribe to actions
+  // todo: create [optional] caret to get the user input
+  // todo: pass custom tools with ability to subscribe to actions
   // todo: create shell with fs and text editor
 
-  window.terminal = new Terminal( '#terminal' );
+  window.terminal = Terminal( '#terminal' );
 
-  terminal.enable({
+  terminal.on({
     wrap: true,
     select: { enabled: true },
     font: { size: 16 },

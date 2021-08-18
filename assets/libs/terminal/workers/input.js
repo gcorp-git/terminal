@@ -3,9 +3,12 @@
 
   const TAB_LENGTH = 4;
 
-  window.TerminalIO = Worker(({ state, workers }) => ({
-    state: { buffer: [] },
-    service: ({ state, workers }) => ({
+  window.TerminalInput = Worker(({ state, workers }) => {
+    const self = {
+      buffer: [],
+    };
+    
+    return {
       print( sx, sy, text ) {
         if ( typeof text === 'string' ) text = { text };
 
@@ -48,11 +51,11 @@
         }
       },
       get( sx, sy ) {
-        return state.buffer[ sy ] ? state.buffer[ sy ][ sx ] : undefined;
+        return self.buffer[ sy ] ? self.buffer[ sy ][ sx ] : undefined;
       },
       set( sx, sy, symbol ) {
         if ( !symbol ) return this.remove( sx, sy );
-        if ( !state.buffer[ sy ] ) state.buffer[ sy ] = [];
+        if ( !self.buffer[ sy ] ) self.buffer[ sy ] = [];
 
         if ( typeof symbol === 'string' ) {
           symbol = { char: symbol };
@@ -60,25 +63,25 @@
 
         if ( !( symbol instanceof Object ) ) return;
 
-        state.buffer[ sy ][ sx ] = symbol;
+        self.buffer[ sy ][ sx ] = symbol;
 
-        workers.screen.mark_for_refresh();
+        workers.screen.refresh();
       },
       remove( sx, sy ) {
         if ( sx !== undefined && sy !== undefined ) {
-          if ( state.buffer[ sy ] && state.buffer[ sy ][ sx ] ) {
-            delete state.buffer[ sy ] && state.buffer[ sy ][ sx ];
+          if ( self.buffer[ sy ] && self.buffer[ sy ][ sx ] ) {
+            delete self.buffer[ sy ] && self.buffer[ sy ][ sx ];
           }
         } else {
-          state.buffer = [];
+          self.buffer = [];
         }
 
-        workers.screen.mark_for_refresh();
+        workers.screen.refresh();
       },
       get_buffer() {
-        return state.buffer;
+        return self.buffer;
       },
-    }),
-  }));
+    };
+  });
 
 })();

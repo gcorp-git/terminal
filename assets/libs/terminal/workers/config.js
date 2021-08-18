@@ -1,8 +1,8 @@
 ;(function(){
   'use strict';
 
-  window.TerminalConfig = Worker(({ state, workers }) => ({
-    state: {
+  window.TerminalConfig = Worker(({ state, workers }) => {
+    const self = {
       options: {
         wrap: false,
         select: {
@@ -19,48 +19,49 @@
           height: 17,
         },
       },
-    },
-    service: ({ state, workers }) => ({
+    };
+
+    return {
       get wrap() {
-        return state.options.wrap;
+        return self.options.wrap;
       },
       get select() {
-        return { ...state.options.select };
+        return { ...self.options.select };
       },
       get font() {
-        return { ...state.options.font };
+        return { ...self.options.font };
       },
       get caret() {
-        return { ...state.options.caret };
+        return { ...self.options.caret };
       },
       edit( options ) {
         if ( !( options instanceof Object ) ) return;
 
         if ( options?.wrap !== undefined ) {
-          state.options.wrap = !!options.wrap;
-          workers.screen.reset();
+          self.options.wrap = !!options.wrap;
+          workers.screen.camera.reset();
         }
 
         if ( options?.select instanceof Object ) {
-          state.options.select.enabled = !!options.select.enabled;
-          state.options.select.bg = options.select.bg ?? state.options.select.bg;
-          state.options.select.color = options.select.color ?? state.options.select.color;
+          self.options.select.enabled = !!options.select.enabled;
+          self.options.select.bg = options.select.bg ?? self.options.select.bg;
+          self.options.select.color = options.select.color ?? self.options.select.color;
         }
 
         if ( options?.font instanceof Object ) {
-          const size = options.font.size ?? state.options.font.size;
-          const weight = options.font.weight ?? state.options.font.weight;
+          const size = options.font.size ?? self.options.font.size;
+          const weight = options.font.weight ?? self.options.font.weight;
 
-          state.options.font.size = size;
-          state.options.font.weight = weight;
+          self.options.font.size = size;
+          self.options.font.weight = weight;
 
-          state.options.caret.width = Math.floor( 0.5 * state.options.font.size ) + 1;
-          state.options.caret.height = state.options.font.size;
+          self.options.caret.width = Math.floor( 0.5 * self.options.font.size ) + 1;
+          self.options.caret.height = self.options.font.size;
         }
 
-        workers.screen.mark_for_refresh();
+        workers.screen.refresh();
       },
-    }),
-  }));
+    };
+  });
 
 })();

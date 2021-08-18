@@ -1,8 +1,8 @@
 ;(function(){
   'use strict';
 
-  window.TerminalEvents = Worker(({ state, workers }) => ({
-    state: {
+  window.TerminalEvents = Worker(({ state, workers }) => {
+    const self = {
       listeners: [],
       kb: {
         ctrl: false,
@@ -13,40 +13,38 @@
         left: false,
         right: false,
       },
-    },
-    service: ({ state, workers }) => ({
-      enable() {
-        const $canvas = workers.screen.$canvas;
+    };
+    
+    return {
+      on( $canvas ) {
+        window.onresize = workers.screen.refresh;
 
-        window.onresize = workers.screen.mark_for_refresh;
+        const env = { self, state, workers };
 
-        const env = { state, workers };
-
-        _on( state, $canvas, 'mousedown', e => _on_mouse_down( env, e ) );
-        _on( state, document, 'mousemove', e => _on_mouse_move( env, e ) );
-        _on( state, document, 'mouseup', e => _on_mouse_up( env, e ) );
-        _on( state, $canvas, 'wheel', e => _on_mouse_wheel( env, e ) );
-        _on( state, document, 'keydown', e => _on_key_down( env, e ) );
-        _on( state, document, 'keydown', e => _on_key_up( env, e ) );
+        _on( env, $canvas, 'mousedown', e => _on_mouse_down( env, e ) );
+        _on( env, document, 'mousemove', e => _on_mouse_move( env, e ) );
+        _on( env, document, 'mouseup', e => _on_mouse_up( env, e ) );
+        _on( env, $canvas, 'wheel', e => _on_mouse_wheel( env, e ) );
+        _on( env, document, 'keydown', e => _on_key_down( env, e ) );
+        _on( env, document, 'keydown', e => _on_key_up( env, e ) );
       },
-      disable() {
-        state.listeners.forEach(({ $node, event, handler }) => {
+      off() {
+        self.listeners.forEach(({ $node, event, handler }) => {
           $node.removeEventListener( event, handler );
         });
 
-        state.listeners = [];
+        self.listeners = [];
       },
-    }),
-  }));
+    };
+  });
 
   function _on_mouse_down( env, e ) {
     const sx = Math.floor( e.offsetX / env.workers.config.caret.width );
     const sy = Math.floor( e.offsetY / env.workers.config.caret.height );
 
     if ( e.which === 1 && env.workers.config.select.enabled ) {
-      env.state.mouse.left = true;
-      env.workers.select.set({ from: env.workers.screen.get_real_coords( sx, sy ) });
-      env.workers.screen.mark_for_refresh();
+      env.self.mouse.left = true;
+      env.workers.screen.select.from( sx, sy );
     }
   }
 
@@ -54,9 +52,8 @@
     const sx = Math.floor( e.offsetX / env.workers.config.caret.width );
     const sy = Math.floor( e.offsetY / env.workers.config.caret.height );
 
-    if ( e.which === 1 && env.state.mouse.left ) {
-      env.workers.select.edit({ to: env.workers.screen.get_real_coords( sx, sy ) });
-      env.workers.screen.mark_for_refresh();
+    if ( e.which === 1 && env.self.mouse.left ) {
+      env.workers.screen.select.to( sx, sy );
     }
   }
 
@@ -64,20 +61,10 @@
     const sx = Math.floor( e.offsetX / env.workers.config.caret.width );
     const sy = Math.floor( e.offsetY / env.workers.config.caret.height );
 
-    if ( e.which === 1 && env.state.mouse.left ) {
-      env.state.mouse.left = false;
-
-      env.workers.select.edit({ to: env.workers.screen.get_real_coords( sx, sy ) });
-
-      const select = env.workers.select.get();
-
-      if ( select.from.rx === select.to.rx ) {
-        if ( select.from.ry === select.to.ry ) {
-          env.workers.select.remove();
-        }
-      }
-
-      env.workers.screen.mark_for_refresh();
+    if ( e.which === 1 && env.self.mouse.left ) {
+      env.self.mouse.left = false;
+      env.workers.screen.select.to( sx, sy );
+      env.workers.screen.select.stop();
     }
   }
 
@@ -86,95 +73,36 @@
 
     let delta = Math.floor( e.deltaY / 100 );
 
-    if ( env.state.kb.shift ) {
-      env.workers.screen.ox = env.workers.screen.ox + delta;
-    } else {
-      env.workers.screen.oy = env.workers.screen.oy + delta;
-    }
+    const dx = env.self.kb.shift ? delta : 0;
+    const dy = !env.self.kb.shift ? delta : 0;
 
-    env.workers.screen.mark_for_refresh();
+    env.workers.screen.camera.move( dx, dy );
   }
 
   function _on_key_down( env, e ) {
     switch ( e.key ) {
-      case 'Control': env.state.kb.ctrl = true; break;
-      case 'Shift': env.state.kb.shift = true; break;
-      case 'Alt': env.state.kb.alt = true; break;
+      case 'Control': env.self.kb.ctrl = true; break;
+      case 'Shift': env.self.kb.shift = true; break;
+      case 'Alt': env.self.kb.alt = true; break;
     }
 
-    const select = env.workers.select.get();
-
-    if ( select?.to ) {
-      if ( e.code === 'KeyC' && e.ctrlKey ) {
-        const normalized_select = env.workers.select.get_normalized();
-        const buffer = env.workers.io.get_buffer();
-        const result = [];
-
-        let fragment = [];
-
-        if ( normalized_select.from.ry === normalized_select.to.ry ) {
-          fragment = [];
-
-          const row = buffer[ normalized_select.from.ry ];
-
-          for ( let ix = normalized_select.from.rx; ix <= normalized_select.to.rx; ix++ ) {
-            fragment.push( row[ ix ] ? row[ ix ].char : ' ' );
-          }
-
-          result.push( fragment.join('') );
-        } else {
-          for ( let iy = normalized_select.from.ry; iy <= normalized_select.to.ry; iy++ ) {
-            fragment = [];
-
-            const row = buffer[ iy ];
-
-            if ( !row ) continue;
-
-            if ( iy === normalized_select.from.ry ) {
-              for ( let ix = normalized_select.from.rx; ix < row.length; ix++ ) {
-                fragment.push( row[ ix ] ? row[ ix ].char : ' ' );
-              }
-
-              result.push( fragment.join('') );
-              continue;
-            }
-
-            if ( iy === normalized_select.to.ry ) {
-              for ( let ix = 0; ix <= normalized_select.to.rx && ix < row.length; ix++ ) {
-                fragment.push( row[ ix ] ? row[ ix ].char : ' ' );
-              }
-
-              result.push( fragment.join('') );
-              continue;
-            }
-
-            for ( let ix = 0; ix < row.length; ix++ ) {
-              fragment.push( row[ ix ] ? row[ ix ].char : ' ' );
-            }
-
-            result.push( fragment.join('') );
-          }
-        }
-
-        // todo: copy to inner clipboard
-
-        console.log( result.join( '\n' ) );
-      }
+    if ( e.code === 'KeyC' && e.ctrlKey ) {
+      env.workers.clipboard.copy( env.workers.screen.select.get() ?? {} );
     }
   }
 
   function _on_key_up( env, e ) {
     switch ( e.key ) {
-      case 'Control': env.state.kb.ctrl = false; break;
-      case 'Shift': env.state.kb.shift = false; break;
-      case 'Alt': env.state.kb.alt = false; break;
+      case 'Control': env.self.kb.ctrl = false; break;
+      case 'Shift': env.self.kb.shift = false; break;
+      case 'Alt': env.self.kb.alt = false; break;
     }
   }
 
-  function _on( state, $node, event, handler ) {
+  function _on( env, $node, event, handler ) {
     $node.addEventListener( event, handler );
 
-    const found = state.listeners.find( listener => (
+    const found = env.self.listeners.find( listener => (
          listener.$node === $node
       && listener.event === event
       && listener.handler === handler
@@ -182,7 +110,7 @@
 
     if ( found ) return;
 
-    state.listeners.push({ $node, event, handler });
+    env.self.listeners.push({ $node, event, handler });
   }
 
 })();
